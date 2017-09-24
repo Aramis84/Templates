@@ -12,6 +12,7 @@ class somClass(object):
     Inputs :input_dims -> number of features in input data
             num_iterations -> number of iterations
             init_lr -> initial learning rate
+            init_r -> optional initial radius
             grid_dims -> dimensions of SOM grid
             distance_metric -> choice of euclidean (0) or cosine (1) distance metric
             seed -> random seed
@@ -20,16 +21,23 @@ class somClass(object):
             
      """
     
-    def __init__(self, input_dims, num_iterations = 1000, init_lr = 0.5, grid_dims = (30,30), \
-        distance_metric = 0, seed = None, verbose = False, result = False):
+    def __init__(self, input_dims, num_iterations = 1000, init_lr = 0.5, grid_dims = (10,10), distance_metric = 0, \
+                 seed = None, verbose = False, result = False, init_r = None):
         
         self.num_iterations = num_iterations
         self.init_lr = init_lr
         self.r, self.c = grid_dims
         self.distance_metric = distance_metric
-        self.init_radius = max(self.r, self.c)/2
+             
+        if init_r is None:
+            self.init_radius = max(self.r, self.c)/2
+        else:
+            self.init_radius = init_r
+            
         self.tc = self.num_iterations/np.log(self.init_radius)
-        
+        self._shrink_function_radius = lambda x, i : x * np.exp(-i/self.tc)
+        self._shrink_function_lr = lambda x, i : x * np.exp(-i/self.num_iterations)
+
         self.random_generator = np.random.RandomState(seed)
         
         self.d = input_dims # number of dimensions in a sample
@@ -47,7 +55,7 @@ class somClass(object):
         self.result = result
         self.all_radius = [self.init_radius]
         self.all_lr = [self.init_lr]
-        self.eps = 0.001
+        
         
     def _euclid_distance(self,v1,v2):
         """
@@ -116,7 +124,7 @@ class somClass(object):
                 weight_vect = self.w[ii,jj,:].reshape(self.d, 1)
                 geom_dist = np.sum((bmu_pos - np.array([ii,jj])) ** 2)
                 if geom_dist <= radius**2:
-                    neighborhood_func = np.exp(-geom_dist/(self.eps+2*(radius**2)))
+                    neighborhood_func = np.exp(-geom_dist/(2*(radius**2)))
                     weight_vect_new = weight_vect + neighborhood_func*lr*(sample-weight_vect)
                     weight_vect_new = weight_vect_new.reshape(1,self.d)
                     weight_vect_new = normalization(weight_vect_new)
@@ -131,16 +139,14 @@ class somClass(object):
         
         """
         self.m = X.shape[0]
-        radius = self.init_radius
-        lr = self.init_lr
         for iteration in range(self.num_iterations):
             index = self.random_generator.randint(0, self.m)
             sample = X[index,:].reshape(self.d, 1)
             bmu, bmu_pos = self._find_bmu(sample)
             self.bmu_map[tuple(bmu_pos)].append(index) # indices of data samples and the node in the grid it is mapped to
             
-            radius = radius * np.exp(-(iteration)/self.tc) # updating the radius of the neighborhood
-            lr = lr * np.exp(-(iteration)/self.num_iterations) # updating the learning rate
+            radius = self._shrink_function_radius(self.init_radius, iteration) # updating the radius of the neighborhood
+            lr = self._shrink_function_lr(self.init_lr, iteration) # updating the learning rate
             
             self._weight_update(sample, bmu_pos, radius, lr)
             
@@ -186,4 +192,3 @@ class somClass(object):
             
         max_norm_distances /= max_norm_distances.max() # normalizing with respect to the largest distance in the grid
         return max_norm_distances
- 
